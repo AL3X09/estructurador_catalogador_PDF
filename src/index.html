@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Catalogador de Conocimiento PDF</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module">
+    const { open } = window.__TAURI_PLUGIN_DIALOG__ || window.__TAURI__.dialog;
+
+    const API_BASE = "http://127.0.0.1:47821";
+
+    const loadPdfBtn = document.getElementById("load-pdf-btn");
+    const progressContainer = document.getElementById("progress-container");
+    const progressBar = document.getElementById("progress-bar");
+    const errorMessage = document.getElementById("error-message");
+    const catalogList = document.getElementById("catalog-list");
+    const markdownPreview = document.getElementById("markdown-preview");
+    const exportBtn = document.getElementById("export-btn");
+
+    let currentMarkdown = "";
+
+    async function fetchCatalog() {
+      try {
+        const response = await fetch(`${API_BASE}/catalog`);
+        if (!response.ok) throw new Error("Fallo al obtener el catálogo");
+        const data = await response.json();
+        renderCatalog(data.documents);
+      } catch (err) {
+        showError("No se pudo cargar el catálogo. ¿El backend está en ejecución?");
+      }
+    }
+
+    function renderCatalog(documents) {
+      catalogList.innerHTML = "";
+      documents.forEach((doc) => {
+        const li = document.createElement("li");
+        li.innerHTML = `<strong>${doc.title}</strong><br>
+          <small>Páginas: ${doc.pages} | Tablas: ${doc.tables_count}</small>`;
+
+        li.addEventListener("click", () => {
+          markdownPreview.textContent = JSON.stringify(doc, null, 2);
+        });
+
+        catalogList.appendChild(li);
+      });
+    }
+
+    function showError(msg) {
+      errorMessage.textContent = msg;
+      errorMessage.classList.remove("hidden");
+    }
+
+    function hideError() {
+      errorMessage.classList.add("hidden");
+    }
+
+    async function handleLoadPdf() {
+      hideError();
+
+      try {
+        let openFn = open;
+        if (!openFn && window.__TAURI__ && window.__TAURI__.dialog) {
+          openFn = window.__TAURI__.dialog.open;
+        }
+
+        const selected = await openFn({
+          multiple: false,
+          filters: [{
+            name: 'PDF',
+            extensions: ['pdf']
+          }]
+        });
+
+        if (selected === null) {
+          return; // user cancelled
+        }
+
+        const filePath = Array.isArray(selected) ? selected[0] : selected;
+
+        progressContainer.classList.remove("hidden");
+        progressBar.style.width = "50%";
+
+        const response = await fetch(`${API_BASE}/extract`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ pdf_path: filePath })
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || "Error en la extracción");
+        }
+
+        const data = await response.json();
+
+        progressBar.style.width = "100%";
+
+        currentMarkdown = data.markdown;
+        markdownPreview.textContent = currentMarkdown;
+        exportBtn.disabled = false;
+
+        fetchCatalog();
+
+        setTimeout(() => {
+          progressContainer.classList.add("hidden");
+          progressBar.style.width = "0%";
+        }, 1000);
+
+      } catch (err) {
+        showError(err.message);
+        progressContainer.classList.add("hidden");
+        progressBar.style.width = "0%";
+      }
+    }
+
+    loadPdfBtn.addEventListener("click", handleLoadPdf);
+
+    exportBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(currentMarkdown);
+        const originalText = exportBtn.textContent;
+        exportBtn.textContent = "¡Copiado!";
+        setTimeout(() => exportBtn.textContent = originalText, 2000);
+      } catch (err) {
+        showError("No se pudo copiar al portapapeles.");
+      }
+    });
+
+    fetchCatalog();
+  </script>
+</head>
+<body>
+  <div class="container">
+    <h1>Catalogador de Conocimiento PDF</h1>
+
+    <div class="controls">
+      <button id="load-pdf-btn">Cargar PDF</button>
+    </div>
+
+    <div id="progress-container" class="hidden">
+      <p id="progress-text">Procesando...</p>
+      <div class="progress-bar-wrapper">
+        <div id="progress-bar"></div>
+      </div>
+    </div>
+
+    <div id="error-message" class="hidden"></div>
+
+    <div class="main-content">
+      <div class="sidebar">
+        <h2>Catálogo de Documentos</h2>
+        <ul id="catalog-list"></ul>
+      </div>
+
+      <div class="preview-panel">
+        <h2>Vista Previa Markdown</h2>
+        <div class="preview-actions">
+          <button id="export-btn" disabled>Exportar al Portapapeles</button>
+        </div>
+        <pre id="markdown-preview">Selecciona un documento para ver su contenido...</pre>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
