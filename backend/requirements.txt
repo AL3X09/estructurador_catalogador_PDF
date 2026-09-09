@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+PyMuPDF
+pdfplumber
+python-multipart
+anthropic
