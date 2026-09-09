@@ -1,7 +1,0 @@
-fastapi
-uvicorn
-PyMuPDF
-pdfplumber
-anthropic
-pydantic
-python-multipart
